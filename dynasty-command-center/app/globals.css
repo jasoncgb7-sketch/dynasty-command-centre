@@ -1,0 +1,36 @@
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #132019;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+::selection {
+  background: #D4A94A;
+  color: #1B2E22;
+}
+
+input:focus, button:focus {
+  outline: 2px solid #D4A94A;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+}
