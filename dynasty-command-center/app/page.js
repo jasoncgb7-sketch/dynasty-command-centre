@@ -88,8 +88,14 @@ function extractJson(text) {
   const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON object found in response");
-  return JSON.parse(cleaned.slice(start, end + 1));
+  if (start === -1 || end === -1) {
+    throw new Error("The report got cut off before it finished — click Refresh Report to try again.");
+  }
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1));
+  } catch (e) {
+    throw new Error("The report came back in an unexpected format — click Refresh Report to try again.");
+  }
 }
 
 async function callScoutApi(prompt) {
@@ -325,16 +331,16 @@ function AIWarRoom({ league, myRoster, myTeamName, rosters, users, playersMap, f
           const u = users.find((u) => u.user_id === r.owner_id);
           const teamName = u?.metadata?.team_name || u?.display_name || `Team ${r.roster_id}`;
           const record = `${r.settings?.wins ?? 0}-${r.settings?.losses ?? 0}`;
-          const names = (r.players || []).map((pid) => {
+          const names = (r.players || []).slice(0, 12).map((pid) => {
             const p = resolvePlayer(pid, playersMap);
             return `${p.full_name} (${p.position})`;
           }).join(", ");
           return `${teamName} (${record}): ${names}`;
         }).join("\n");
 
-      const faList = freeAgents.slice(0, 40).map((p) => `${p.full_name} (${p.position}, ${p.team})`).join("; ");
+      const faList = freeAgents.slice(0, 20).map((p) => `${p.full_name} (${p.position})`).join("; ");
 
-      const prompt = `You are a dynasty fantasy football analyst with live web search. Research current NFL news, injury reports, expert rankings, and trending waiver activity, then give sharp, concrete advice for this specific team using full knowledge of the whole league.
+      const prompt = `You are a dynasty fantasy football analyst. Give a concise, practical review of this team. Use web search only if needed for a specific injury or news check — do not over-research, keep it quick.
 
 League: "${league.name}", format: ${badges}.
 Season phase: ${phase} (week ${week}, ${nflState.season} season).
@@ -344,24 +350,20 @@ Starters: ${starterList || "none set"}.
 Bench: ${benchList || "none"}.
 ${taxiList ? `Taxi squad: ${taxiList}.` : ""}
 
-OTHER TEAMS IN THIS LEAGUE (use these exact team and player names for trade proposals):
+OTHER TEAMS (for trade ideas):
 ${otherTeamsList}
 
-FREE AGENTS CURRENTLY AVAILABLE (use these exact names for waiver targets — do not suggest a player who is already on a roster above):
+SOME AVAILABLE FREE AGENTS:
 ${faList}
 
-Search for the latest injury news, depth chart changes, and rankings relevant to these specific players before answering.
-
-Respond with ONLY a raw JSON object (no markdown fences, no preamble) matching exactly this shape:
+Respond with ONLY a raw JSON object, nothing else, matching exactly this shape:
 {
-  "summary": "1-2 sentence outlook for this team right now",
-  "start_sit": [{"start": "player name", "sit": "player name", "why": "short reason"}],
-  "waiver_targets": [{"player": "name from the free agent list above", "why": "short reason"}],
-  "trade_proposals": [{"with_team": "exact other team name from above", "give": ["my player(s)"], "get": ["their player(s)"], "why": "short reason this helps both sides"}],
-  "draft_targets": [{"player": "name", "why": "short reason"}],
-  "news": [{"headline": "short headline", "detail": "1 sentence detail"}]
+  "summary": "2-3 sentence review of this team's overall strengths and weaknesses",
+  "buy_low": [{"player": "a player on my team or a free agent worth targeting", "why": "short reason"}],
+  "sell_high": [{"player": "a player on my team worth trading away now", "why": "short reason"}],
+  "trade_proposals": [{"with_team": "exact other team name from above", "give": ["my player(s)"], "get": ["their player(s)"], "why": "short reason"}]
 }
-Rules: if it is off-season or preseason with no live matchups, return an empty array for start_sit and focus more on trade_proposals and draft_targets (rookie/dynasty draft prep). Trade proposals MUST use real team names and real player names from the rosters listed above, and should target realistic positional needs. Keep every array to at most 4 items. Keep "why"/"detail" under 20 words each.`;
+Keep every array to at most 3 items. Keep "why" under 15 words. Be direct and specific, not generic.`;
 
       const text = await callScoutApi(prompt);
       const json = extractJson(text);
@@ -386,7 +388,7 @@ Rules: if it is off-season or preseason with no live matchups, return an empty a
 
       {!state.data && !state.loading && !state.error && (
         <div style={{ color: theme.chalkDim, fontSize: 13 }}>
-          Pulls live news, injury updates, and rankings for your exact roster, plus every other team's roster and the free agent pool — then recommends start/sit calls, waiver targets, specific trade proposals naming real league-mates, and draft targets.
+          Reviews your roster against every other team in the league, then flags buy-low and sell-high candidates plus specific trade proposals naming real league-mates.
         </div>
       )}
 
@@ -403,15 +405,13 @@ Rules: if it is off-season or preseason with no live matchups, return an empty a
             {state.data.summary}
           </div>
 
-          {state.data.start_sit?.length > 0 && (
+          {state.data.buy_low?.length > 0 && (
             <div>
-              <SectionLabel icon={Swords}>Start / Sit</SectionLabel>
+              <SectionLabel icon={Target}>Buy Low</SectionLabel>
               <div style={{ display: "grid", gap: 8 }}>
-                {state.data.start_sit.map((r, i) => (
+                {state.data.buy_low.map((r, i) => (
                   <div key={i} style={{ background: theme.cardAlt, borderRadius: 10, border: `1px solid ${theme.line}`, padding: 12 }}>
-                    <div style={{ fontSize: 13, color: theme.chalk }}>
-                      <span style={{ color: "#4FAE74", fontWeight: 600 }}>Start {r.start}</span> over <span style={{ color: theme.danger, fontWeight: 600 }}>{r.sit}</span>
-                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: theme.chalk }}>{r.player}</div>
                     <div style={{ color: theme.chalkDim, fontSize: 12, marginTop: 4 }}>{r.why}</div>
                   </div>
                 ))}
@@ -419,11 +419,11 @@ Rules: if it is off-season or preseason with no live matchups, return an empty a
             </div>
           )}
 
-          {state.data.waiver_targets?.length > 0 && (
+          {state.data.sell_high?.length > 0 && (
             <div>
-              <SectionLabel icon={Target}>Waiver Targets</SectionLabel>
+              <SectionLabel icon={Swords}>Sell High</SectionLabel>
               <div style={{ display: "grid", gap: 8 }}>
-                {state.data.waiver_targets.map((r, i) => (
+                {state.data.sell_high.map((r, i) => (
                   <div key={i} style={{ background: theme.cardAlt, borderRadius: 10, border: `1px solid ${theme.line}`, padding: 12 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: theme.chalk }}>{r.player}</div>
                     <div style={{ color: theme.chalkDim, fontSize: 12, marginTop: 4 }}>{r.why}</div>
@@ -455,33 +455,6 @@ Rules: if it is off-season or preseason with no live matchups, return an empty a
             </div>
           )}
 
-          {state.data.draft_targets?.length > 0 && (
-            <div>
-              <SectionLabel icon={Layers}>Draft Targets</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {state.data.draft_targets.map((r, i) => (
-                  <div key={i} style={{ background: theme.cardAlt, borderRadius: 10, border: `1px solid ${theme.line}`, padding: 12 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: theme.chalk }}>{r.player}</div>
-                    <div style={{ color: theme.chalkDim, fontSize: 12, marginTop: 4 }}>{r.why}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {state.data.news?.length > 0 && (
-            <div>
-              <SectionLabel icon={Newspaper}>News Notes</SectionLabel>
-              <div style={{ display: "grid", gap: 8 }}>
-                {state.data.news.map((r, i) => (
-                  <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${theme.line}` }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: theme.chalk }}>{r.headline}</div>
-                    <div style={{ color: theme.chalkDim, fontSize: 12, marginTop: 2 }}>{r.detail}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
